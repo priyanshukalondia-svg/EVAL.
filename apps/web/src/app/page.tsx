@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 // API Config
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type ViewState = "landing" | "uploading" | "interview" | "report" | "coach" | "admin";
 
@@ -98,6 +98,7 @@ export default function Home() {
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [aiIsSpeaking, setAiIsSpeaking] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceName, setSelectedVoiceName] = useState<string>("");
   
@@ -106,6 +107,8 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const recognitionRef = useRef<any>(null);
   const answerPrefixRef = useRef("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
   
   // Audio Web Nodes references
   const audioContextRef = useRef<AudioContext | null>(null);
