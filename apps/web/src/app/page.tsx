@@ -12,6 +12,15 @@ import {
 // API Config
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Helper fetch to automatically bypass localtunnel reminder warning screen
+const customFetch = (url: string, options: RequestInit = {}) => {
+  const headers = {
+    ...options.headers,
+    "bypass-tunnel-reminder": "true",
+  };
+  return fetch(url, { ...options, headers });
+};
+
 type ViewState = "landing" | "uploading" | "interview" | "report" | "coach" | "admin";
 
 interface UserProfile {
@@ -238,12 +247,13 @@ export default function Home() {
     }
   };
 
-  // Web Audio Analyser Visualizer
+  // Web Audio Analyser Visualizer & Audio Clip Recorder
   const startAudioVisualization = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
+      // Setup Web Audio Analyser
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioContext = new AudioContextClass();
       audioContextRef.current = audioContext;
@@ -255,8 +265,66 @@ export default function Home() {
       analyserRef.current = analyser;
       
       visualizeAudioRealtime();
+      
+      // Initialize MediaRecorder for high-accuracy Whisper transcription
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      recordedChunksRef.current = [];
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+      
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+        await uploadAudioForTranscription(audioBlob);
+      };
+      
+      mediaRecorder.start(250); // Capture chunks every 250ms
     } catch (err) {
       console.error("Microphone capture failed:", err);
+    }
+  };
+
+  // Upload Audio Blob to FastAPI backend for high-accuracy OpenAI Whisper transcription
+  const uploadAudioForTranscription = async (blob: Blob) => {
+    setIsTranscribing(true);
+    setErrorMsg("");
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, "recording.webm");
+      
+      const res = await fetch(`${API_BASE_URL}/api/interviews/transcribe`, {
+        method: "POST",
+        headers: {
+          "bypass-tunnel-reminder": "true"
+        },
+        body: formData
+      });
+      
+      if (!res.ok) throw new Error("Whisper transcription failed.");
+      const data = await res.json();
+      
+      setCandidateAnswer(prev => {
+        // Remove any interim bracketed text and append high-accuracy Whisper transcript
+        const cleanedPrev = prev.replace(/\s*\[.*\]\s*$/, "").trim();
+        const transcript = data.text.trim();
+        
+        if (transcript.startsWith("Warning:") || transcript.startsWith("Fallback:")) {
+          alert(transcript);
+          return cleanedPrev;
+        }
+        
+        return cleanedPrev ? `${cleanedPrev} ${transcript}` : transcript;
+      });
+    } catch (err: any) {
+      console.error("Transcription upload failed:", err);
+      setErrorMsg("Failed to transcribe audio. Please verify your connection or type your answer manually.");
+    } finally {
+      setIsTranscribing(false);
     }
   };
 
@@ -301,6 +369,12 @@ export default function Home() {
       cancelAnimationFrame(visualizerFrameRef.current);
       visualizerFrameRef.current = null;
     }
+    
+    // Stop MediaRecorder if recording is active
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
@@ -357,7 +431,7 @@ export default function Home() {
 
   // Seeding Question Bank Helper on Mount
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/admin/seed-questions`, { method: "POST" })
+    customFetch(`${API_BASE_URL}/api/admin/seed-questions`, { method: "POST" })
       .then(res => res.json())
       .then(data => console.log("Seeding verified:", data))
       .catch(err => console.error("Seeding failed:", err));
@@ -382,7 +456,7 @@ export default function Home() {
   const handleFetchAdminStats = async () => {
     setView("admin");
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/analytics`);
+      const res = await customFetch(`${API_BASE_URL}/api/admin/analytics`);
       const data = await res.json();
       setAdminStats(data);
     } catch (err) {
@@ -410,7 +484,7 @@ export default function Home() {
       resumeFormData.append("full_name", profile.name);
       resumeFormData.append("file", resumeFile);
       
-      const resumeRes = await fetch(`${API_BASE_URL}/api/resumes/upload`, {
+      const resumeRes = await customFetch(`${API_BASE_URL}/api/resumes/upload`, {
         method: "POST",
         body: resumeFormData,
       });
@@ -422,7 +496,7 @@ export default function Home() {
       
       // Step B: Analyze JD and Company
       setUploadStatus(`Researching ${profile.companyName} & mapping requirements...`);
-      const jdRes = await fetch(`${API_BASE_URL}/api/job-descriptions/analyze`, {
+      const jdRes = await customFetch(`${API_BASE_URL}/api/job-descriptions/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -440,7 +514,7 @@ export default function Home() {
       
       // Step C: Initialize Session
       setUploadStatus("Architecting adaptive interview framework...");
-      const sessionRes = await fetch(`${API_BASE_URL}/api/interviews/session`, {
+      const sessionRes = await customFetch(`${API_BASE_URL}/api/interviews/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -458,7 +532,7 @@ export default function Home() {
       setSessionId(sessionData.id);
       
       // Load Initial history
-      const historyRes = await fetch(`${API_BASE_URL}/api/interviews/session/${sessionData.id}/history`);
+      const historyRes = await customFetch(`${API_BASE_URL}/api/interviews/session/${sessionData.id}/history`);
       const historyData = await historyRes.json();
       setChatHistory(historyData);
       
@@ -503,7 +577,7 @@ export default function Home() {
     setIsAiThinking(true);
     
     try {
-      const res = await fetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/answer`, {
+      const res = await customFetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answer: answerSubmitted })
@@ -513,7 +587,7 @@ export default function Home() {
       const nextTurn = await res.json();
       
       // Reload actual history to ensure UUIDs match
-      const historyRes = await fetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/history`);
+      const historyRes = await customFetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/history`);
       const historyData = await historyRes.json();
       setChatHistory(historyData);
       
@@ -530,7 +604,7 @@ export default function Home() {
         const checkReport = setInterval(async () => {
           attempts++;
           try {
-            const rRes = await fetch(`${API_BASE_URL}/api/reports/session/${sessionId}`);
+            const rRes = await customFetch(`${API_BASE_URL}/api/reports/session/${sessionId}`);
             if (rRes.ok) {
               const rData = await rRes.json();
               setReport(rData);
@@ -578,12 +652,12 @@ export default function Home() {
     setView("uploading");
     setUploadStatus("Compiling partial evaluation...");
     
-    fetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/finalize`, { method: "POST" })
+    customFetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/finalize`, { method: "POST" })
       .then(res => {
         if (!res.ok) throw new Error();
         // Wait for report
         setTimeout(async () => {
-          const rRes = await fetch(`${API_BASE_URL}/api/reports/session/${sessionId}`);
+          const rRes = await customFetch(`${API_BASE_URL}/api/reports/session/${sessionId}`);
           if (rRes.ok) {
             const rData = await rRes.json();
             setReport(rData);
@@ -607,7 +681,7 @@ export default function Home() {
     setCoachingData(null);
     
     try {
-      const res = await fetch(`${API_BASE_URL}/api/reports/turn/${turnId}/coach`);
+      const res = await customFetch(`${API_BASE_URL}/api/reports/turn/${turnId}/coach`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       setCoachingData(data);
