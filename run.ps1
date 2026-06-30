@@ -47,6 +47,10 @@ elseif ($Action -eq "dev") {
     Write-Host "Starting development servers..." -ForegroundColor Green
     npm run dev
 }
+elseif ($Action -eq "share") {
+    Write-Host "Exposing local API server via secure HTTPS tunnel..." -ForegroundColor Green
+    npm run share
+}
 elseif ($Action -eq "clean") {
     Write-Host "Cleaning build and virtual environments..." -ForegroundColor Yellow
     Remove-Item -Recurve -Force apps/api/.venv -ErrorAction SilentlyContinue
