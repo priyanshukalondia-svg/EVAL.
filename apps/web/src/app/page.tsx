@@ -6,7 +6,7 @@ import {
   Upload, FileText, ArrowRight, User, Play, MessageSquare, 
   BarChart3, Brain, Compass, HelpCircle, Award, CheckCircle2, 
   ChevronRight, Sparkles, RefreshCw, Volume2, Mic, Settings, 
-  Database, ShieldAlert, BookOpen, AlertCircle
+  Database, ShieldAlert, BookOpen, AlertCircle, MicOff, VolumeX
 } from "lucide-react";
 
 // API Config
@@ -82,7 +82,6 @@ export default function Home() {
   const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
   const [candidateAnswer, setCandidateAnswer] = useState("");
   const [isAiThinking, setIsAiThinking] = useState(false);
-  const [aiIsSpeaking, setAiIsSpeaking] = useState(false);
   const [currentStage, setCurrentStage] = useState("greeting");
   const [currentDifficulty, setCurrentDifficulty] = useState("easy");
   
@@ -95,18 +94,218 @@ export default function Home() {
   // Admin stats
   const [adminStats, setAdminStats] = useState<any>(null);
 
+  // Voice Mode & Synthesis States
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [aiIsSpeaking, setAiIsSpeaking] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceName, setSelectedVoiceName] = useState<string>("");
+  
   // Chat scroll anchor
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const recognitionRef = useRef<any>(null);
   
+  // Audio Web Nodes references
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const visualizerFrameRef = useRef<number | null>(null);
+
   // Scroll to bottom on chat update
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, isAiThinking]);
 
-  // Soundwave canvas animation reference
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  
-  // Soundwave animation
+  // Load browser voices
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        // Filter English voices
+        const engVoices = voices.filter(v => v.lang.startsWith("en"));
+        setAvailableVoices(engVoices);
+        if (engVoices.length > 0) {
+          // Look for Google voices or default to US English
+          const defaultVoice = engVoices.find(v => v.name.includes("Google") || v.lang.startsWith("en-US")) || engVoices[0];
+          setSelectedVoiceName(defaultVoice.name);
+        }
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  // Initialize Speech Recognition
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const rec = new SpeechRecognition();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = "en-US";
+        
+        rec.onresult = (event: any) => {
+          let interimTranscript = "";
+          let finalTranscript = "";
+          
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript;
+            } else {
+              interimTranscript += transcript;
+            }
+          }
+          
+          if (finalTranscript) {
+            setCandidateAnswer(prev => {
+              const cleanedPrev = prev.trim();
+              const cleanedFinal = finalTranscript.trim();
+              return cleanedPrev ? `${cleanedPrev} ${cleanedFinal}` : cleanedFinal;
+            });
+          }
+        };
+        
+        rec.onerror = (event: any) => {
+          console.error("Speech Recognition Error:", event.error);
+          if (event.error !== "no-speech") {
+            setIsRecording(false);
+            stopAudioVisualization();
+          }
+        };
+        
+        rec.onend = () => {
+          setIsRecording(false);
+          stopAudioVisualization();
+        };
+        
+        recognitionRef.current = rec;
+      }
+    }
+  }, []);
+
+  // Browser Text-To-Speech (TTS)
+  const speakText = (text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel(); // Stop current speech
+    
+    // Clean text of markdown highlights or formatting for speech
+    const cleanText = text.replace(/[*_#`\[\]()]/g, "");
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    
+    const voice = availableVoices.find(v => v.name === selectedVoiceName);
+    if (voice) {
+      utterance.voice = voice;
+    }
+    
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    
+    utterance.onstart = () => setAiIsSpeaking(true);
+    utterance.onend = () => setAiIsSpeaking(false);
+    utterance.onerror = () => setAiIsSpeaking(false);
+    
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Speech-To-Text Toggle Microphone
+  const toggleRecording = () => {
+    if (!recognitionRef.current) {
+      alert("Real-time Speech Recognition is not supported by your browser. Please use Google Chrome or Microsoft Edge.");
+      return;
+    }
+    
+    if (isRecording) {
+      recognitionRef.current.stop();
+    } else {
+      try {
+        setCandidateAnswer(""); // Reset answer input on click
+        recognitionRef.current.start();
+        setIsRecording(true);
+        startAudioVisualization();
+      } catch (e) {
+        console.error("Failed to start speech recognition:", e);
+      }
+    }
+  };
+
+  // Web Audio Analyser Visualizer
+  const startAudioVisualization = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioContext = new AudioContextClass();
+      audioContextRef.current = audioContext;
+      
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      
+      visualizeAudioRealtime();
+    } catch (err) {
+      console.error("Microphone capture failed:", err);
+    }
+  };
+
+  const visualizeAudioRealtime = () => {
+    if (!canvasRef.current || !analyserRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    const analyser = analyserRef.current;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    const render = () => {
+      if (!analyserRef.current) return;
+      
+      analyser.getByteFrequencyData(dataArray);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#ffffff"; // Bright white for active user speech
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      
+      const sliceWidth = canvas.width / bufferLength;
+      for (let i = 0; i < bufferLength; i++) {
+        const x = i * sliceWidth;
+        const percent = dataArray[i] / 255.0; // Normalized amplitude
+        const offset = percent * (canvas.height / 2) * 1.5;
+        const y = (canvas.height / 2) + (i % 2 === 0 ? offset : -offset);
+        
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      visualizerFrameRef.current = requestAnimationFrame(render);
+    };
+    
+    render();
+  };
+
+  const stopAudioVisualization = () => {
+    if (visualizerFrameRef.current) {
+      cancelAnimationFrame(visualizerFrameRef.current);
+      visualizerFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+  };
+
+  // soundwave breathing visualizer for non-recording states
   useEffect(() => {
     if (view !== "interview" || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -117,17 +316,23 @@ export default function Home() {
     let phase = 0;
     
     const render = () => {
+      // Skip if recording is active, since Web Audio is painting the canvas
+      if (isRecording) {
+        animationId = requestAnimationFrame(render);
+        return;
+      }
+      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = aiIsSpeaking ? "#22c55e" : "#52525b";
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = aiIsSpeaking ? "#22c55e" : "#52525b"; // Green when AI talks, gray when idle
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       
       const sliceWidth = canvas.width / 50;
       for (let i = 0; i < 50; i++) {
         const x = i * sliceWidth;
         const scale = aiIsSpeaking 
-          ? Math.sin(i * 0.15 + phase) * 20 * (Math.sin(phase * 2) > 0 ? Math.random() + 0.5 : 0.8)
-          : Math.sin(i * 0.1) * 3; // idle pulse
+          ? Math.sin(i * 0.2 + phase) * 15 * (Math.sin(phase * 1.5) > 0 ? Math.random() * 0.4 + 0.7 : 0.8)
+          : Math.sin(i * 0.15 + phase) * 2; // slow pulse breathing when idle
           
         const y = (canvas.height / 2) + scale;
         if (i === 0) ctx.moveTo(x, y);
@@ -135,17 +340,16 @@ export default function Home() {
       }
       ctx.stroke();
       
-      phase += aiIsSpeaking ? 0.15 : 0.03;
+      phase += aiIsSpeaking ? 0.2 : 0.03;
       animationId = requestAnimationFrame(render);
     };
     
     render();
     return () => cancelAnimationFrame(animationId);
-  }, [view, aiIsSpeaking]);
+  }, [view, aiIsSpeaking, isRecording]);
 
   // Seeding Question Bank Helper on Mount
   useEffect(() => {
-    // Silent seed call to backend
     fetch(`${API_BASE_URL}/api/admin/seed-questions`, { method: "POST" })
       .then(res => res.json())
       .then(data => console.log("Seeding verified:", data))
@@ -180,7 +384,7 @@ export default function Home() {
     }
   };
 
-  // 1. Initialize Interview Process: Upload Resume -> Parse -> JD Analyze -> Start Interview Session
+  // 1. Initialize Interview Process: Upload Resume -> Parse -> JD Analyze -> Start Session
   const handleStartProcess = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile.name || !profile.email || !resumeFile || !jdText || !profile.companyName) {
@@ -237,7 +441,7 @@ export default function Home() {
           resume_id: resumeId,
           jd_id: jdId,
           role_track: profile.roleTrack,
-          mode: "text"
+          mode: isVoiceMode ? "voice" : "text"
         })
       });
       
@@ -251,9 +455,14 @@ export default function Home() {
       const historyData = await historyRes.json();
       setChatHistory(historyData);
       
-      // AI "speaks" initial question
-      setAiIsSpeaking(true);
-      setTimeout(() => setAiIsSpeaking(false), 3000);
+      // If voice mode is active, read the greeting aloud
+      if (isVoiceMode && historyData.length > 0) {
+        // Delay slightly for browser audio loading
+        setTimeout(() => speakText(historyData[0].content), 800);
+      } else {
+        setAiIsSpeaking(true);
+        setTimeout(() => setAiIsSpeaking(false), 3000);
+      }
       
       setView("interview");
     } catch (err: any) {
@@ -266,6 +475,11 @@ export default function Home() {
   const handleSubmitAnswer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!candidateAnswer.trim() || isAiThinking) return;
+    
+    // Stop recording if active
+    if (isRecording) {
+      recognitionRef.current?.stop();
+    }
     
     // Add candidate turn locally for instant feedback
     const tempCandidateTurn: ChatTurn = {
@@ -327,8 +541,12 @@ export default function Home() {
         }, 3000);
       } else {
         // AI speaks
-        setAiIsSpeaking(true);
-        setTimeout(() => setAiIsSpeaking(false), 4000);
+        if (isVoiceMode) {
+          speakText(nextTurn.content);
+        } else {
+          setAiIsSpeaking(true);
+          setTimeout(() => setAiIsSpeaking(false), 4000);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -339,31 +557,40 @@ export default function Home() {
   };
 
   // 3. Finalize Early
-  const handleFinalizeEarly = async () => {
+  const handleFinalizeEarly = () => {
     if (!window.confirm("Are you sure you want to end the interview early? We will compile scores based on completed responses.")) return;
+    
+    // Stop voice activities
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    if (isRecording) {
+      recognitionRef.current?.stop();
+    }
+    
     setView("uploading");
     setUploadStatus("Compiling partial evaluation...");
     
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/finalize`, { method: "POST" });
-      if (!res.ok) throw new Error();
-      
-      // Wait for report
-      setTimeout(async () => {
-        const rRes = await fetch(`${API_BASE_URL}/api/reports/session/${sessionId}`);
-        if (rRes.ok) {
-          const rData = await rRes.json();
-          setReport(rData);
-          setView("report");
-        } else {
-          setView("landing");
-          setErrorMsg("Could not load report.");
-        }
-      }, 5000);
-    } catch (err) {
-      setView("landing");
-      setErrorMsg("Failed to end session.");
-    }
+    fetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/finalize`, { method: "POST" })
+      .then(res => {
+        if (!res.ok) throw new Error();
+        // Wait for report
+        setTimeout(async () => {
+          const rRes = await fetch(`${API_BASE_URL}/api/reports/session/${sessionId}`);
+          if (rRes.ok) {
+            const rData = await rRes.json();
+            setReport(rData);
+            setView("report");
+          } else {
+            setView("landing");
+            setErrorMsg("Could not load report.");
+          }
+        }, 5000);
+      })
+      .catch(err => {
+        setView("landing");
+        setErrorMsg("Failed to end session.");
+      });
   };
 
   // 4. Fetch Coaching Details for Replay Turn
@@ -436,11 +663,11 @@ export default function Home() {
                 <ul className="text-xs text-neutral-400 space-y-2 font-light">
                   <li className="flex items-start space-x-2">
                     <span className="text-emerald-500 mr-1">✓</span>
-                    <span>Adaptive question reasoning, matching your CV bullets.</span>
+                    <span>Interactive Voice mode: AI speaks questions and transcribes your microphone.</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <span className="text-emerald-500 mr-1">✓</span>
-                    <span>Granular scoring rubrics mapped across 8 performance dimensions.</span>
+                    <span>Adaptive question reasoning, matching your CV bullets.</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <span className="text-emerald-500 mr-1">✓</span>
@@ -518,6 +745,32 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* Voice Mode Selector Card */}
+                <div className="border border-zinc-850 p-4 rounded bg-zinc-900/10 flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-semibold text-neutral-200 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Volume2 className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>Interactive Voice Mode.</span>
+                    </h4>
+                    <p className="text-[10px] text-zinc-500 font-light">
+                      AI Recruiter speaks the question and transcribes your microphone.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsVoiceMode(!isVoiceMode)}
+                    className={`relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      isVoiceMode ? "bg-neutral-100" : "bg-zinc-800"
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full shadow ring-0 transition duration-200 ease-in-out ${
+                        isVoiceMode ? "translate-x-5 bg-zinc-950" : "translate-x-0 bg-neutral-400"
+                      }`}
+                    />
+                  </button>
+                </div>
+
                 <div className="space-y-4 pt-2">
                   <div className="border border-dashed border-zinc-800 p-6 rounded bg-zinc-900/5 hover:bg-zinc-900/20 transition-colors flex flex-col items-center justify-center space-y-2 cursor-pointer relative">
                     <input 
@@ -579,27 +832,36 @@ export default function Home() {
               {/* Webcam Placeholder Grid */}
               <div className="grid grid-cols-2 gap-4">
                 {/* Candidate Feed */}
-                <div className="border border-zinc-800 rounded bg-zinc-950 aspect-[4/3] flex flex-col justify-between p-4 relative overflow-hidden group">
+                <div className={`border rounded aspect-[4/3] flex flex-col justify-between p-4 relative overflow-hidden group transition-all ${
+                  isRecording ? "border-white bg-zinc-900/40" : "border-zinc-800 bg-zinc-950"
+                }`}>
                   <div className="absolute inset-0 bg-radial-gradient from-zinc-900 to-zinc-950 opacity-50 z-0"></div>
                   <div className="px-2 py-0.5 border border-zinc-800 text-[8px] tracking-widest uppercase text-zinc-400 rounded-full w-fit bg-zinc-900/60 z-10">Candidate</div>
                   <div className="flex-1 flex items-center justify-center z-10">
-                    <div className="w-12 h-12 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center text-neutral-300">
+                    <div className={`w-12 h-12 rounded-full border bg-zinc-900 flex items-center justify-center text-neutral-300 relative transition-all ${
+                      isRecording ? "border-white" : "border-zinc-800"
+                    }`}>
                       <User className="w-6 h-6" />
+                      {isRecording && (
+                        <span className="absolute -inset-1 rounded-full border border-white animate-ping opacity-40"></span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-zinc-500 z-10">
                     <span>{profile.name} (You)</span>
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                    <span className={`w-2 h-2 rounded-full ${isRecording ? "bg-white animate-pulse" : "bg-red-500 animate-pulse"}`}></span>
                   </div>
                 </div>
 
                 {/* AI Recruiter Feed */}
-                <div className="border border-zinc-800 rounded bg-zinc-950 aspect-[4/3] flex flex-col justify-between p-4 relative overflow-hidden group">
+                <div className={`border rounded aspect-[4/3] flex flex-col justify-between p-4 relative overflow-hidden group transition-all ${
+                  aiIsSpeaking ? "border-emerald-500" : "border-zinc-800 bg-zinc-950"
+                }`}>
                   <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-zinc-950 z-0"></div>
                   <div className="px-2 py-0.5 border border-zinc-800 text-[8px] tracking-widest uppercase text-zinc-400 rounded-full w-fit bg-zinc-900/60 z-10">AI Recruiter</div>
                   <div className="flex-1 flex items-center justify-center z-10">
-                    <div className={`w-12 h-12 rounded-full border ${aiIsSpeaking ? 'border-emerald-500' : 'border-zinc-800'} bg-zinc-900 flex items-center justify-center text-neutral-300 relative`}>
-                      <Brain className={`w-6 h-6 ${aiIsSpeaking ? 'text-emerald-500' : 'text-zinc-400'}`} />
+                    <div className={`w-12 h-12 rounded-full border ${aiIsSpeaking ? 'border-emerald-500 bg-emerald-950/20' : 'border-zinc-800 bg-zinc-900'} flex items-center justify-center text-neutral-300 relative transition-all`}>
+                      <Brain className={`w-6 h-6 ${aiIsSpeaking ? 'text-emerald-400' : 'text-zinc-400'}`} />
                       {aiIsSpeaking && (
                         <span className="absolute -inset-1 rounded-full border border-emerald-500 animate-ping opacity-30"></span>
                       )}
@@ -617,9 +879,16 @@ export default function Home() {
 
               {/* Status metrics card */}
               <div className="border border-zinc-800 rounded p-5 bg-zinc-950/20 space-y-4">
-                <h3 className="text-xs font-semibold tracking-wider uppercase text-neutral-300 pb-2 border-b border-zinc-900">
-                  Session Parameters.
-                </h3>
+                <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+                  <h3 className="text-xs font-semibold tracking-wider uppercase text-neutral-300">
+                    Session Parameters.
+                  </h3>
+                  <div className="flex items-center space-x-1 border border-zinc-800 rounded px-2 py-0.5 bg-zinc-900/50">
+                    <Volume2 className="w-3 h-3 text-zinc-500" />
+                    <span className="text-[8px] uppercase tracking-widest font-mono text-zinc-400">{isVoiceMode ? "Voice mode Active" : "Text Mode"}</span>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4 text-xs font-light">
                   <div className="space-y-1">
                     <span className="text-zinc-500 block text-[9px] uppercase tracking-wider">Role Track</span>
@@ -639,9 +908,27 @@ export default function Home() {
                   </div>
                 </div>
                 
+                {/* Voice Selection Settings Panel (Only in voice mode) */}
+                {isVoiceMode && availableVoices.length > 0 && (
+                  <div className="pt-3 border-t border-zinc-900 space-y-1.5 text-xs">
+                    <label className="text-[9px] uppercase tracking-wider text-zinc-500 font-medium">AI Recruiter Voice</label>
+                    <select
+                      value={selectedVoiceName}
+                      onChange={(e) => setSelectedVoiceName(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-neutral-200 transition-colors text-neutral-300"
+                    >
+                      {availableVoices.map(v => (
+                        <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
                 {/* Audio soundwave rendering container */}
                 <div className="pt-2 flex flex-col items-center justify-center border-t border-zinc-900">
-                  <span className="text-[8px] uppercase tracking-widest text-zinc-500 mb-1">Conversational Latency</span>
+                  <span className="text-[8px] uppercase tracking-widest text-zinc-500 mb-1">
+                    {isRecording ? "Live Vocal Amplitude" : "Conversational Latency"}
+                  </span>
                   <canvas ref={canvasRef} width={280} height={50} className="w-full h-10 border border-zinc-900 rounded bg-zinc-950/40" />
                 </div>
               </div>
@@ -709,10 +996,33 @@ export default function Home() {
 
               {/* Chat Input form */}
               <form onSubmit={handleSubmitAnswer} className="p-4 border-t border-zinc-800 bg-[#0a0a0a]/50 flex items-center space-x-3">
+                
+                {/* Voice microphone Toggle button */}
+                {isVoiceMode && (
+                  <button
+                    type="button"
+                    onClick={toggleRecording}
+                    className={`p-3 rounded-full border transition-all ${
+                      isRecording 
+                        ? "bg-white border-white text-zinc-950 animate-pulse" 
+                        : "bg-zinc-900 border-zinc-800 text-neutral-400 hover:text-neutral-100 hover:border-zinc-700"
+                    }`}
+                    title={isRecording ? "Stop Recording" : "Record Answer"}
+                  >
+                    {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+                )}
+
                 <input 
                   type="text" required value={candidateAnswer} onChange={(e) => setCandidateAnswer(e.target.value)}
                   disabled={isAiThinking}
-                  placeholder={isAiThinking ? "Please wait..." : "Type your detailed answer or response here..."}
+                  placeholder={
+                    isAiThinking 
+                      ? "Analyzing..." 
+                      : isRecording 
+                      ? "Recording transcript... speak clearly." 
+                      : "Type your detailed answer or response here..."
+                  }
                   className="flex-1 bg-zinc-900/80 border border-zinc-800 rounded px-4 py-3 text-xs focus:outline-none focus:border-neutral-200 transition-colors text-neutral-200 disabled:opacity-55 font-light"
                 />
                 <button 
