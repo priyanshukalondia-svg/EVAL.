@@ -105,6 +105,7 @@ export default function Home() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const recognitionRef = useRef<any>(null);
+  const answerPrefixRef = useRef("");
   
   // Audio Web Nodes references
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -159,12 +160,15 @@ export default function Home() {
             }
           }
           
+          const prefix = answerPrefixRef.current.trim();
+          
           if (finalTranscript) {
-            setCandidateAnswer(prev => {
-              const cleanedPrev = prev.trim();
-              const cleanedFinal = finalTranscript.trim();
-              return cleanedPrev ? `${cleanedPrev} ${cleanedFinal}` : cleanedFinal;
-            });
+            const newFinal = prefix ? `${prefix} ${finalTranscript.trim()}` : finalTranscript.trim();
+            answerPrefixRef.current = newFinal;
+            setCandidateAnswer(newFinal);
+          } else if (interimTranscript) {
+            const preview = prefix ? `${prefix} [${interimTranscript.trim()}]` : `[${interimTranscript.trim()}]`;
+            setCandidateAnswer(preview);
           }
         };
         
@@ -221,7 +225,7 @@ export default function Home() {
       recognitionRef.current.stop();
     } else {
       try {
-        setCandidateAnswer(""); // Reset answer input on click
+        answerPrefixRef.current = candidateAnswer; // Save current input text
         recognitionRef.current.start();
         setIsRecording(true);
         startAudioVisualization();
