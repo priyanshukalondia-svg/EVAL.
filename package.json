@@ -1,0 +1,14 @@
+{
+  "name": "ai-recruitment-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:web": "npm run dev --prefix apps/web",
+    "dev:api": "powershell -Command \"cd apps/api; .\\.venv\\Scripts\\activate; uvicorn app.main:app --reload --port 8000\"",
+    "dev": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
+    "install:all": "npm install && npm install --prefix apps/web && powershell -Command \"cd apps/api; python -m venv .venv; .\\.venv\\Scripts\\activate; pip install -r requirements.txt\""
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
