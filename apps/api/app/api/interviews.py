@@ -116,3 +116,45 @@ def finalize_session(session_id: str, db: Session = Depends(get_db)):
         return {"status": "completed", "report_id": report.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+from fastapi import UploadFile, File
+import tempfile
+import os
+
+@router.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    Transcribe uploaded audio file using OpenAI Whisper-1 API.
+    Falls back to a warning/mock message if no API keys are present.
+    """
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        return {
+            "text": "Warning: Please configure your OPENAI_API_KEY to enable high-accuracy Whisper transcription. Using local mock transcript instead."
+        }
+        
+    try:
+        # Save uploaded file bytes to a temporary file
+        file_suffix = "." + file.filename.split(".")[-1] if "." in file.filename else ".webm"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_suffix) as temp_audio:
+            content = await file.read()
+            temp_audio.write(content)
+            temp_path = temp_audio.name
+            
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=openai_api_key)
+            with open(temp_path, "rb") as audio_file:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file
+                )
+            return {"text": transcript.text}
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception as e:
+        print(f"Whisper transcription failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Whisper transcription failed: {str(e)}")
+

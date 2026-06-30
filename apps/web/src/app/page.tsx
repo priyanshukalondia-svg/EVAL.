@@ -1019,19 +1019,21 @@ export default function Home() {
 
                 <input 
                   type="text" required value={candidateAnswer} onChange={(e) => setCandidateAnswer(e.target.value)}
-                  disabled={isAiThinking}
+                  disabled={isAiThinking || isTranscribing}
                   placeholder={
                     isAiThinking 
-                      ? "Analyzing..." 
+                      ? "Recruiter is analyzing response..." 
+                      : isTranscribing
+                      ? "OpenAI Whisper is transcribing your audio... please wait."
                       : isRecording 
-                      ? "Recording transcript... speak clearly." 
-                      : "Type your detailed answer or response here..."
+                      ? "Recording vocal audio... Click microphone again to transcribe." 
+                      : "Type your response or click mic to speak..."
                   }
                   className="flex-1 bg-zinc-900/80 border border-zinc-800 rounded px-4 py-3 text-xs focus:outline-none focus:border-neutral-200 transition-colors text-neutral-200 disabled:opacity-55 font-light"
                 />
                 <button 
                   type="submit" 
-                  disabled={!candidateAnswer.trim() || isAiThinking}
+                  disabled={!candidateAnswer.trim() || isAiThinking || isTranscribing}
                   className="bg-neutral-100 text-[#0a0a0a] hover:bg-neutral-200 disabled:opacity-40 px-5 py-3 rounded text-[10px] uppercase tracking-widest font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer"
                 >
                   <span>Submit</span>
