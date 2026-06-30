@@ -1,0 +1,18 @@
+# netlify.toml
+# Netlify configuration file for automatic GitHub CI/CD builds
+
+[build]
+  # Tell Netlify to build the frontend Next.js app in the apps/web directory
+  base = "apps/web"
+  
+  # The directory containing the static export files to publish
+  publish = "out"
+  
+  # The build command to compile and export the Next.js static site
+  command = "npm run build"
+
+[[redirects]]
+  # Ensure all dynamic client-side routes redirect to index.html to prevent 404 on page refreshes
+  from = "/*"
+  to = "/index.html"
+  status = 200
