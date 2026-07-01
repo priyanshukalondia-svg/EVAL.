@@ -314,8 +314,9 @@ export default function Home() {
         const transcript = data.text.trim();
         
         if (transcript.startsWith("Warning:") || transcript.startsWith("Fallback:")) {
-          alert(transcript);
-          return cleanedPrev;
+          console.warn(transcript);
+          // Strip brackets and keep the browser-native transcribed text
+          return prev.replace(/[\[\]]/g, "").trim();
         }
         
         return cleanedPrev ? `${cleanedPrev} ${transcript}` : transcript;
