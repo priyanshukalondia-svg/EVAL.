@@ -11,6 +11,10 @@
   # The build command to compile and export the Next.js static site
   command = "npm run build"
 
+[build.environment]
+  # Set the API URL directly in the build environment to ensure Next.js bakes it in
+  NEXT_PUBLIC_API_URL = "https://priyanshu-kalondia-eval-api.hf.space"
+
 [[redirects]]
   # Ensure all dynamic client-side routes redirect to index.html to prevent 404 on page refreshes
   from = "/*"
