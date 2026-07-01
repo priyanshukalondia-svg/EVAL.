@@ -21,6 +21,14 @@ const customFetch = (url: string, options: RequestInit = {}) => {
   return fetch(url, { ...options, headers });
 };
 
+const isLocalApi = API_BASE_URL.includes("localhost") || API_BASE_URL.includes("127.0.0.1");
+const isTunnelApi = API_BASE_URL.includes("loca.lt") || API_BASE_URL.includes("ngrok");
+const CLUSTER_LABEL = isLocalApi 
+  ? "Local Cluster" 
+  : isTunnelApi 
+  ? "Secure Tunnel" 
+  : "Hugging Face Cloud";
+
 type ViewState = "landing" | "uploading" | "interview" | "report" | "coach" | "admin";
 
 interface UserProfile {
@@ -714,7 +722,7 @@ export default function Home() {
         <div className="flex items-center space-x-4">
           <div className="px-3 py-1 border border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-widest rounded-full flex items-center space-x-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Local Cluster</span>
+            <span>{CLUSTER_LABEL}</span>
           </div>
         </div>
       </header>
