@@ -1,3 +1,13 @@
+---
+title: Eval API
+emoji: 🎙️
+colorFrom: gray
+colorTo: black
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # EVAL. — AI Recruitment & Interview Platform
 
 EVAL. is a production-ready, world-class AI Recruitment & Interview Platform. It conducts realistic, adaptive candidate interviews matching the style and rigor of top-tier organizations (Google, Microsoft, Amazon, Meta, OpenAI, etc.). 
