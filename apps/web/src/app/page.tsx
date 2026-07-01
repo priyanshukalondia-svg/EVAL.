@@ -706,7 +706,7 @@ export default function Home() {
       {/* Navigation Header */}
       <header className="border-b border-zinc-800 bg-[#0a0a0a]/90 backdrop-blur sticky top-0 z-40 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setView("landing")}>
-          <div className="w-8 h-8 rounded-sm bg-neutral-100 flex items-center justify-center text-[#0a0a0a] font-bold text-sm tracking-wider">E.</div>
+          <img src="/logo.png" alt="AI Recruiter Logo" className="w-8 h-8 rounded-sm object-contain" />
           <span className="font-semibold text-lg tracking-wider uppercase text-neutral-100">Eval.</span>
         </div>
         <nav className="hidden md:flex items-center space-x-8 text-xs uppercase tracking-widest text-neutral-400 font-medium">
