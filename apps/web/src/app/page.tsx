@@ -724,6 +724,7 @@ export default function Home() {
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>{CLUSTER_LABEL}</span>
           </div>
+          <span className="text-[9px] text-zinc-600 font-mono select-none tracking-widest uppercase">build: jul_04_11:45</span>
         </div>
       </header>
 
