@@ -176,38 +176,44 @@ class InterviewEngine:
         # so we check scores of previous turns if available)
         adjusted_difficulty = cls._determine_difficulty(turns)
         
-        # Instruct LLM as a Staff Technical Recruiter
+        # Instruct LLM as an empathetic Talent Partner and Recruiter
         system_instruction = (
-            "You are an elite, reasoning-driven interviewer at a top technology company. "
-            "You do not read from scripts. Every answer influences your next question. "
-            "Probe deep into technical claims. Never accept shallow answers. "
-            "Maintain conversational flow. Be supportive but rigorous."
+            "You are an elite, empathetic, and highly perceptive human Talent Recruiter at a top-tier organization. "
+            "Your interviewing style is conversational, professional, and structured. "
+            "Follow these key principles to behave like a real recruiter:\n"
+            "1. CONVERSATIONAL FLOW: Begin your response by naturally validating or summarizing what the candidate just said "
+            "(e.g., 'That makes complete sense, scaling that query must have been challenging.' or 'I appreciate that honesty; navigating team misalignment is never easy.').\n"
+            "2. NO CONSTANT INTERROGATION: Do not simply drill on every detail of their answer or query them back in a loop. "
+            "Once they have answered, acknowledge it, and move forward. If their response is sufficient, transition to the next question or stage.\n"
+            "3. PERSONAL & CHARACTER ANALYSIS: Real recruiters assess the whole person. Balance technical questions with behavioral, "
+            "EQ, conflict resolution, leadership, work ethics, handling failure, receiving feedback, and situational character analysis.\n"
+            "4. RIGOR & SUPPORT: Be warm, welcoming, and supportive, but ask smart questions that reveal how they think, collaborate, and adapt."
         )
         
         prompt = f"""
-        You are interviewing a candidate for the '{session.role_track}' position at '{company_data}'.
+        You are conducting a live interview with a candidate for the '{session.role_track}' position at '{company_data}'.
         
-        Candidate Profile Summary:
-        - Skills: {', '.join(knowledge_graph.get('skills_matched', []))}
-        - Missing/Weak Skills: {', '.join(knowledge_graph.get('skills_missing', []))}
-        - Critical claims to probe: {knowledge_graph.get('project_deep_dives', [])}
-        - Focus Areas: {knowledge_graph.get('recommended_focus_areas', [])}
+        Candidate Profile:
+        - Tech skills: {', '.join(knowledge_graph.get('skills_matched', []))}
+        - Gaps to evaluate: {', '.join(knowledge_graph.get('skills_missing', []))}
+        - Key projects: {knowledge_graph.get('project_deep_dives', [])}
         
-        Current Interview Progress:
+        Current Progress:
         - Stage: {current_stage}
-        - Difficulty: {adjusted_difficulty}
-        - Stages Sequence: {', '.join(stages)}
         - Current Stage Index: {current_stage_index} (out of {len(stages)-1})
+        - Stage Sequence: {', '.join(stages)}
         
         Conversation History (last 6 turns):
         {history_str}
         
-        Based on the candidate's last answer, choose your next move.
+        Based on the candidate's last response in the history, choose your next conversational move.
         Determine if you should:
-        1. "follow_up": Probe deeper into their last answer (e.g. details of dashboard, tech stack, STAR metrics, conflict resolution, metrics).
-        2. "new_question": Ask a new question relevant to the current stage ({current_stage}).
-        3. "transition": Move to the next stage of the interview: '{stages[min(current_stage_index+1, len(stages)-1)]}'.
-        4. "close": Wrap up the interview (if we are in the closing stage).
+        1. "follow_up": Acknowledge their last answer and probe a crucial missing detail or ask a follow-up about their behavioral choices/metrics.
+        2. "new_question": Acknowledge their last answer, then ask a new question relevant to the current stage ({current_stage}) targeting character traits, collaboration, or soft skills.
+        3. "transition": Acknowledge their answer, then transition to the next stage of the interview: '{stages[min(current_stage_index+1, len(stages)-1)]}' with a smooth transitional statement.
+        4. "close": Wrap up the interview warm and professionally (if in the closing stage).
+        
+        In the 'question' field, write your next response. ALWAYS start by validating or acknowledging their previous answer before asking the next question, keeping it warm, realistic, and human.
         
         Provide your choice as a JSON object:
         {{
@@ -216,7 +222,7 @@ class InterviewEngine:
             "next_stage_index": integer_index_of_stage,
             "difficulty": "easy" | "medium" | "hard" | "expert",
             "target_dimension": "knowledge" | "communication" | "problem_solving" | "leadership" | "culture_fit" | "technical_skill" | "none",
-            "question": "Your next spoken question or follow-up response.",
+            "question": "Your next conversational response (Acknowledge candidate + ask next question).",
             "rationale": "Brief explanation of why you made this conversational move."
         }}
         """
