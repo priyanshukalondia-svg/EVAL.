@@ -149,6 +149,18 @@ class LLMProvider:
     def _get_mock_fallback_response(prompt: str) -> str:
         """Fallback mock responses based on prompt keywords to keep local dev functional offline."""
         prompt_lower = prompt.lower()
+        
+        # 1. Interview Engine next turn queries (Must be evaluated first to avoid collisions with "company" or "resume")
+        if "interview_engine" in prompt_lower or "next" in prompt_lower:
+            return json.dumps({
+                "action": "new_question",
+                "question": "Can you walk me through a complex coding project that you are particularly proud of? What was the architecture and why did you choose it?",
+                "difficulty": "medium",
+                "target_dimension": "knowledge",
+                "rationale": "Transitioning from greeting to projects discussion."
+            })
+            
+        # 2. Executive report compilations
         if "report" in prompt_lower or "coaching" in prompt_lower or "synthesis" in prompt_lower or "committee" in prompt_lower:
             return json.dumps({
                 "recommendation": "hire",
@@ -161,6 +173,8 @@ class LLMProvider:
                 "study_plan": [{"topic": "System Design: Scaling Databases", "resources": ["Designing Data-Intensive Applications"]}],
                 "star_critique": "Your answer was good but lacked a clear 'Result' metric. You mentioned you 'improved dashboard speed' but didn't quantify it."
             })
+            
+        # 3. Resume parsing fallback
         elif "parse" in prompt_lower and "resume" in prompt_lower:
             return json.dumps({
                 "personal_info": {"name": "Jane Candidate", "email": "jane@example.com", "phone": "123-456-7890"},
@@ -170,6 +184,8 @@ class LLMProvider:
                 "skills": ["Python", "JavaScript", "React", "FastAPI", "SQL"],
                 "achievements": ["Dean's List 2022-2024"]
             })
+            
+        # 4. Job description parsing fallback
         elif "job" in prompt_lower and "description" in prompt_lower:
             return json.dumps({
                 "role_title": "Full Stack Developer",
@@ -179,6 +195,8 @@ class LLMProvider:
                 "responsibilities": ["Build responsive UI components", "Design database schemas", "Optimize APIs"],
                 "company_expectations": ["Collaborative team player", "Enthusiasm for clean code"]
             })
+            
+        # 5. Company research fallback
         elif "research" in prompt_lower or "company" in prompt_lower:
             return json.dumps({
                 "name": "Google",
@@ -188,14 +206,8 @@ class LLMProvider:
                 "interview_process": "Typically 1 recruiter screen, 1 technical screen, and 4-5 on-site loops focusing on coding, system design, and Googlyness.",
                 "recent_news": "Accelerating research in artificial intelligence and quantum computing."
             })
-        elif "interview_engine" in prompt_lower or "next" in prompt_lower:
-            return json.dumps({
-                "action": "new_question",
-                "question": "Can you walk me through a complex coding project that you are particularly proud of? What was the architecture and why did you choose it?",
-                "difficulty": "medium",
-                "target_dimension": "knowledge",
-                "rationale": "Transitioning from greeting to projects discussion."
-            })
+            
+        # 6. Rubric scoring fallback
         elif "score" in prompt_lower or "scoring" in prompt_lower:
             return json.dumps({
                 "scores": [
