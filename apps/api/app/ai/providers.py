@@ -152,12 +152,100 @@ class LLMProvider:
         
         # 1. Interview Engine next turn queries (Must be evaluated first to avoid collisions with "company" or "resume")
         if "interview_engine" in prompt_lower or "next" in prompt_lower:
+            # Extract stage and sequence
+            stage = "greeting"
+            stage_match = re.search(r"-\s*Stage:\s*(\w+)", prompt)
+            if stage_match:
+                stage = stage_match.group(1).strip()
+                
+            stage_idx = 0
+            idx_match = re.search(r"Current Stage Index:\s*(\d+)", prompt)
+            if idx_match:
+                stage_idx = int(idx_match.group(1))
+                
+            stages_seq = []
+            seq_match = re.search(r"Stage Sequence:\s*([^\n]+)", prompt)
+            if seq_match:
+                stages_seq = [s.strip() for s in seq_match.group(1).split(",")]
+            elif "stages sequence" in prompt.lower():
+                seq_match = re.search(r"Stages Sequence:\s*([^\n]+)", prompt, re.IGNORECASE)
+                if seq_match:
+                    stages_seq = [s.strip() for s in seq_match.group(1).split(",")]
+                    
+            # Determine next stage
+            next_stage_idx = stage_idx
+            next_stage = stage
+            action = "new_question"
+            
+            # Simple heuristic to transition if conversation has turns in this stage
+            # Let's count candidate responses in history
+            history_lines = [line for line in prompt.split('\n') if "CANDIDATE:" in line]
+            stage_turns_count = len(history_lines)
+            
+            # Check if candidate's last answer was extremely short or evasive
+            last_answer = ""
+            if history_lines:
+                last_answer = history_lines[-1].split(":", 1)[-1].strip().lower()
+                
+            is_evasive = any(w in last_answer for w in ["sorry", "don't know", "dont know", "no idea", "skip", "pass", "not sure"])
+            
+            if is_evasive or stage_turns_count >= 2:
+                # Transition to next stage
+                action = "transition"
+                if stages_seq and stage_idx < len(stages_seq) - 1:
+                    next_stage_idx = stage_idx + 1
+                    next_stage = stages_seq[next_stage_idx]
+                else:
+                    action = "close"
+                    next_stage = "closing"
+                    next_stage_idx = len(stages_seq) - 1 if stages_seq else 0
+                    
+            # Define mock questions per stage
+            questions_map = {
+                "greeting": "Hello, thank you for joining. To start off, could you briefly introduce yourself and share your background?",
+                "icebreaker": "I see from your profile that you have worked on some interesting projects. What motivated you to pursue a career in this field?",
+                "resume_walkthrough": "Could you walk me through your career journey so far and explain what led you to apply for this specific role?",
+                "projects_discussion": "Can you describe a challenging technical project you worked on recently? What was the architecture and your role?",
+                "behavioral_round": "Tell me about a time you had a conflict with a teammate or stakeholder. How did you handle it and what did you learn?",
+                "technical_round": "Let's discuss a technical scenario. How would you design a scalable system to handle high-traffic API requests under peak loads?",
+                "coding_round": "If you were asked to implement a rate-limiting algorithm, what data structures would you use and why?",
+                "case_study": "Let's go through a business case. If you noticed a 15% drop in user engagement on a dashboard, how would you investigate it?",
+                "leadership_round": "Can you share a situation where you had to take ownership of a failing project and lead the team to a solution?",
+                "company_role_fit": "Why are you interested in joining us, and how do you think you align with our core values of speed and user focus?",
+                "candidate_questions": "Do you have any questions for me about the team, culture, or what success looks like in this role?",
+                "closing": "Thank you so much for your time today! We have all the information we need. We'll be in touch with feedback within the next few days. Have a great day!"
+            }
+            
+            # Get the question for the next stage (or current stage if not transitioning)
+            target_stage = next_stage if action == "transition" or action == "close" else stage
+            question_text = questions_map.get(target_stage, "Could you elaborate on your experience with that?")
+            
+            # If we transition, make the question have a smooth transitional sentence!
+            if action == "transition":
+                transitions_map = {
+                    "icebreaker": "Acknowledge. That's a great start. Let's break the ice. ",
+                    "resume_walkthrough": "Understood. Thank you. Let's walk through your resume. ",
+                    "projects_discussion": "Got it. Let's talk about projects. ",
+                    "behavioral_round": "That makes sense. Let's move to some behavioral questions. ",
+                    "technical_round": "Interesting. Let's dive into some technical scenarios now. ",
+                    "coding_round": "Perfect. Let's look at a coding problem. ",
+                    "case_study": "I see. Let's look at a case study. ",
+                    "leadership_round": "Thanks for sharing. Let's talk about leadership and ownership. ",
+                    "company_role_fit": "Great. Let's talk about company fit. ",
+                    "candidate_questions": "Excellent. Now, the floor is yours. ",
+                    "closing": "Perfect, thank you. Let's wrap up. "
+                }
+                trans_prefix = transitions_map.get(target_stage, "Thank you. Let's move to the next topic. ")
+                question_text = trans_prefix + question_text
+                
             return json.dumps({
-                "action": "new_question",
-                "question": "Can you walk me through a complex coding project that you are particularly proud of? What was the architecture and why did you choose it?",
+                "action": action,
+                "next_stage": next_stage,
+                "next_stage_index": next_stage_idx,
                 "difficulty": "medium",
                 "target_dimension": "knowledge",
-                "rationale": "Transitioning from greeting to projects discussion."
+                "question": question_text,
+                "rationale": f"Rule-based fallback transition to {target_stage}."
             })
             
         # 2. Executive report compilations
