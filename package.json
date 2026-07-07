@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "build": "npm install --prefix apps/web && npm run build --prefix apps/web",
     "dev:web": "npm run dev --prefix apps/web",
     "dev:api": "powershell -Command \"cd apps/api; .\\.venv\\Scripts\\activate; uvicorn app.main:app --reload --port 8000\"",
     "dev": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
